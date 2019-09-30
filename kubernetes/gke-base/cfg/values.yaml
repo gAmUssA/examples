@@ -1,19 +1,19 @@
 confluentPlatformImage: &cpImage
-  image: 
+  image:
     tag: 5.3.1.0
- 
+
 global:
   initContainer:
     <<: *cpImage
   provider:
     registry:
-      fqdn: docker.io 
-    name: gcp 
+      fqdn: docker.io
+    name: gcp
     storage:
-      provisioner: kubernetes.io/gce-pd 
-      reclaimPolicy: Delete 
+      provisioner: kubernetes.io/gce-pd
+      reclaimPolicy: Delete
       parameters:
-        type: pd-ssd 
+        type: pd-ssd
     sasl:
       plain:
         username=test
@@ -32,7 +32,7 @@ zookeeper:
   resources:
     cpu: 200m
     memory: 512Mi
-  
+
 kafka:
   <<: *cpImage
   resources:
@@ -46,29 +46,45 @@ kafka:
     enabled: true
   configOverrides:
     server:
-    - "auto.create.topics.enabled=true"
+      - "auto.create.topics.enabled=true"
 
 schemaregistry:
   <<: *cpImage
   dependencies:
     kafka:
-      bootstrapEndpoint: kafka:9071 
+      bootstrapEndpoint: kafka:9071
 
 connect:
   image:
-    repository: cnfldemos/cp-server-connect-operator-with-datagen 
-    tag: 5.3.0.0_0.1.3
+    repository: gamussa/kafka-connect-twitter
+    tag: 0.3.33
   tls:
     enabled: false
   loadBalancer:
     enabled: false
   dependencies:
     kafka:
-      brokerCount: 1
+      brokerCount: 3
       bootstrapEndpoint: kafka:9071
     schemaregistry:
-      enabled: true 
-      url: http://schemaregistry:8081 
+      enabled: true
+      url: http://schemaregistry:8081
+
+ksql:
+  name: ksql
+  replicas: 1
+  tls:
+    enabled: false
+    fullchain: |-
+    privkey: |-
+    cacerts: |-
+  loadBalancer:
+    enabled: false
+    domain: ""
+  dependencies:
+    kafka:
+      brokerCount: 3
+      bootstrapEndpoint: kafka:9071
 
 controlcenter:
   <<: *cpImage
@@ -83,5 +99,9 @@ controlcenter:
       url: http://connectors:8083
     schemaRegistry:
       enabled: true
-      url: http://schemaregistry:8081 
+      url: http://schemaregistry:8081
+    ksql:
+      enabled: true
+      url: http://ksql:8088
+      
 

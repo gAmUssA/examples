@@ -6,7 +6,7 @@ include $(THIS_MKFILE_DIR)../common/Makefile
 
 GCP_PROJECT_ID ?= $(shell gcloud config list --format 'value(core.project)')
 
-GKE_BASE_CLUSTER_ID ?= cp-examples-operator-$(USER)
+GKE_BASE_CLUSTER_ID ?= kafka-summit-operator-$(USER)
 GKE_BASE_REGION ?= us-central1
 GKE_BASE_ZONE ?= us-central1-a
 GKE_BASE_SUBNET ?= default
@@ -15,10 +15,10 @@ GKE_BASE_MACHINE_TYPE ?= n1-highmem-2
 GKE_BASE_IMAGE_TYPE ?= COS
 GKE_BASE_DISK_TYPE ?= pd-standard
 GKE_BASE_DISK_SIZE ?= 100
-GKE_BASE_NUM_NODES ?= 3
+GKE_BASE_NUM_NODES ?= 7
 
-GKE_BASE_ZOOKEEPER_REPLICAS ?= 1
-GKE_BASE_KAFKA_REPLICAS ?= 1
+GKE_BASE_ZOOKEEPER_REPLICAS ?= 3
+GKE_BASE_KAFKA_REPLICAS ?= 3
 GKE_BASE_CONNECT_REPLICAS ?= 1
 GKE_BASE_SCHEMA_REGISTRY_REPLICAS ?= 1
 
@@ -190,21 +190,44 @@ gke-base-wait-for-controlcenter-destruction: #_ Waits until Control Center is de
 	@$(call echo_stdout_footer_pass,Control Center gone)
 #################################
 
-### CLICKS DATA GEN CONNECTOR ###
-gke-base-deploy-clicks-connector-config: #_ Deploys configuration for a connector that generates sample click data
-	@$(call echo_stdout_header,Deploy clicks datagen connector config)
-	kubectl --context $(KUBECTL_CONTEXT) -n $(KUBECTL_NAMESPACE) apply -f $(THIS_MKFILE_DIR)cfg/clicks-datagen-connector-configmap.yaml
-	@$(call echo_stdout_footer_pass,clicks datagen connector config deployed)
+### TWITTER CONNECTOR ###
+gke-base-deploy-twitter-connector-config: #_ Deploys configuration for a connector that generates sample click data
+	@$(call echo_stdout_header,Deploy twitter connector config)
+	kubectl --context $(KUBECTL_CONTEXT) -n $(KUBECTL_NAMESPACE) apply -f $(THIS_MKFILE_DIR)cfg/twitter-connector-secret.yaml
+	@$(call echo_stdout_footer_pass,twitter connector config deployed)
 
-gke-base-destroy-clicks-connector-deploy-job: #_ Destroys the job that deployed the sample data generator connector
-	@$(call echo_stdout_header,destory Deploy clicks datagen connector job)
-	-kubectl --context $(KUBECTL_CONTEXT) -n $(KUBECTL_NAMESPACE) delete jobs/clicks-datagen-connector-deploy ## name dependnecy in file, required unless/until TTL works across all k8s configurations
-	@$(call echo_stdout_footer_pass,clicks datagen connector job destroyed)
+gke-base-destroy-twitter-connector-deploy-job: #_ Destroys the job that deployed the sample data generator connector
+	@$(call echo_stdout_header,destory Deploy twitter connector job)
+	-kubectl --context $(KUBECTL_CONTEXT) -n $(KUBECTL_NAMESPACE) delete jobs/twitter-connector-deploy ## name dependnecy in file, required unless/until TTL works across all k8s configurations
+	@$(call echo_stdout_footer_pass,twitter connector job destroyed)
 
-gke-base-deploy-clicks-connector: gke-base-deploy-clicks-connector-config gke-base-destroy-clicks-connector-deploy-job #_ Deploys a connector that generates sample click data
-	@$(call echo_stdout_header,Deploy clicks datagen connector)
-	kubectl --context $(KUBECTL_CONTEXT) -n $(KUBECTL_NAMESPACE) apply -f $(THIS_MKFILE_DIR)cfg/clicks-datagen-connector-deploy-job.yaml
-	@$(call echo_stdout_footer_pass,clicks datagen connector deployed)
+gke-base-deploy-twitter-connector: gke-base-deploy-twitter-connector-config gke-base-destroy-twitter-connector-deploy-job #_ Deploys a connector that generates sample click data
+	@$(call echo_stdout_header,Deploy twitter connector)
+	kubectl --context $(KUBECTL_CONTEXT) -n $(KUBECTL_NAMESPACE) apply -f $(THIS_MKFILE_DIR)cfg/twitter-connector-deploy-job.yaml
+	@$(call echo_stdout_footer_pass,twitter connector deployed)
+#################################
+
+##### KSQL  MANAGEMENT #######
+gke-base-deploy-ksql: #_ KSQL to the configured k8s cluster
+	@$(call echo_stdout_header,Deploy KSQL)
+	helm upgrade --install --namespace operator $(HELM_COMMON_FLAGS) --set ksql.enabled=true ksql $(OPERATOR_PATH)helm/confluent-operator
+	@$(call echo_stdout_footer_pass,KSQL deployed)
+
+gke-base-wait-for-ksql: #_ Waits until the KSQL rollout is complete
+	@$(call echo_stdout_header,Wait for KSQL)
+	source $(COMMON_MKFILE_DIR)bin/retry.sh; retry 15 kubectl --context $(KUBECTL_CONTEXT) -n operator get sts ksqls
+	kubectl --context $(KUBECTL_CONTEXT) -n $(KUBECTL_NAMESPACE) rollout status statefulset/ksqls
+	@$(call echo_stdout_footer_pass,KSQL ready)
+
+gke-base-destroy-ksql: #_ Purge the KSQL package 
+	@$(call echo_stdout_header,Purge the Kafka Connect package)
+	-helm delete --purge ksql 
+	@$(call echo_stdout_footer_pass,KSQL purged)
+
+gke-base-wait-for-ksql-destruction: #_ Waits until KSQL is destroyed
+	@$(call echo_stdout_header,Ensure KSQL destroyed)
+	-kubectl --context $(KUBECTL_CONTEXT) -n $(KUBECTL_NAMESPACE) wait --timeout=60s --for=delete statefulset/ksqls
+	@$(call echo_stdout_footer_pass,Kafka Connect gone)
 #################################
 
 ########## CLIENT SECRETS #######
@@ -244,7 +267,9 @@ gke-base-demo: gke-base-validate
 	@make --no-print-directory gke-base-wait-for-schemaregistry
 	@make --no-print-directory gke-base-deploy-connect
 	@make --no-print-directory gke-base-wait-for-connect
-	@make --no-print-directory gke-base-deploy-clicks-connector
+	@make --no-print-directory gke-base-deploy-twitter-connector
+	@make --no-print-directory gke-base-deploy-ksql
+	@make --no-print-directory gke-base-wait-for-ksql
 	@make --no-print-directory gke-base-deploy-controlcenter
 	@make --no-print-directory gke-base-wait-for-controlcenter
 	@echo
@@ -253,9 +278,11 @@ gke-base-demo: gke-base-validate
 gke-base-destroy-demo: gke-base-validate
 	@make --no-print-directory gke-base-destroy-client-console
 	@make --no-print-directory gke-base-destroy-client-secrets
-	@make --no-print-directory gke-base-destroy-clicks-connector-deploy-job
+	@make --no-print-directory gke-base-destroy-twitter-connector-deploy-job
 	@make --no-print-directory gke-base-destroy-controlcenter
 	@make --no-print-directory gke-base-wait-for-controlcenter-destruction
+	@make --no-print-directory gke-base-destroy-ksql
+	@make --no-print-directory gke-base-wait-for-ksql-destruction
 	@make --no-print-directory gke-base-destroy-connect
 	@make --no-print-directory gke-base-wait-for-connect-destruction
 	@make --no-print-directory gke-base-destroy-schemaregistry
