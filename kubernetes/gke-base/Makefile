@@ -89,7 +89,10 @@ gke-base-destroy-zookeeper: #_ Purge the Zookeeper package
 	-helm delete --purge zookeeper
 # There are currently some issues with ZK cleanup in the Helm packages, for now i'm helping along with extra delete commands
 	-kubectl -n operator delete sts/zookeeper
-	-kubectl -n operator delete service/zookeeper;kubectl -n operator delete service/zookeeper-0-internal;
+	-kubectl -n operator delete service/zookeeper
+	-kubectl -n operator delete service/zookeeper-0-internal
+	-kubectl -n operator delete service/zookeeper-1-internal
+	-kubectl -n operator delete service/zookeeper-2-internal
 	@$(call echo_stdout_footer_pass,Zookeeper purged)
 
 gke-base-wait-for-zookeeper-destruction: #_ Waits until the Zookeper cluster is destroyed
@@ -215,8 +218,8 @@ gke-base-deploy-ksql: #_ KSQL to the configured k8s cluster
 
 gke-base-wait-for-ksql: #_ Waits until the KSQL rollout is complete
 	@$(call echo_stdout_header,Wait for KSQL)
-	source $(COMMON_MKFILE_DIR)bin/retry.sh; retry 15 kubectl --context $(KUBECTL_CONTEXT) -n operator get sts ksqls
-	kubectl --context $(KUBECTL_CONTEXT) -n $(KUBECTL_NAMESPACE) rollout status statefulset/ksqls
+	source $(COMMON_MKFILE_DIR)bin/retry.sh; retry 15 kubectl --context $(KUBECTL_CONTEXT) -n operator get sts ksql
+	kubectl --context $(KUBECTL_CONTEXT) -n $(KUBECTL_NAMESPACE) rollout status statefulset/ksql
 	@$(call echo_stdout_footer_pass,KSQL ready)
 
 gke-base-destroy-ksql: #_ Purge the KSQL package 
@@ -226,7 +229,7 @@ gke-base-destroy-ksql: #_ Purge the KSQL package
 
 gke-base-wait-for-ksql-destruction: #_ Waits until KSQL is destroyed
 	@$(call echo_stdout_header,Ensure KSQL destroyed)
-	-kubectl --context $(KUBECTL_CONTEXT) -n $(KUBECTL_NAMESPACE) wait --timeout=60s --for=delete statefulset/ksqls
+	-kubectl --context $(KUBECTL_CONTEXT) -n $(KUBECTL_NAMESPACE) wait --timeout=60s --for=delete statefulset/ksql
 	@$(call echo_stdout_footer_pass,Kafka Connect gone)
 #################################
 

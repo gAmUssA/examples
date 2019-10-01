@@ -84,6 +84,7 @@ ksql:
   dependencies:
     kafka:
       brokerCount: 3
+      brokerEndpoints: kafka:9071
       bootstrapEndpoint: kafka:9071
 
 controlcenter:
